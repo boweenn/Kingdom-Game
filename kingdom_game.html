@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Court</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{overflow:hidden;width:100vw;height:100vh;background:#7a6e67;user-select:none;}
+#game{width:100vw;height:100vh;position:relative;}
+#bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;background:#7a6e67;z-index:1;}
+#frame{position:absolute;z-index:2;pointer-events:none;}
+#frame>*{pointer-events:auto;}
+#char{
+  position:absolute;bottom:1%;right:5%;height:auto;
+  object-fit:contain;z-index:3;image-rendering:crisp-edges;
+  transition:right 0.7s cubic-bezier(0.25,0.46,0.45,0.94);
+}
+/* STATS */
+#stats{position:absolute;top:14px;left:14px;display:flex;flex-direction:column;gap:10px;z-index:10;}
+.stat-row{display:flex;align-items:center;gap:8px;}
+.stat-icon{width:40px;height:40px;image-rendering:crisp-edges;}
+.bar-wrap{width:72px;height:10px;background:rgba(0,0,0,0.4);border-radius:5px;overflow:hidden;}
+.bar{height:100%;border-radius:5px;transition:width 0.5s;}
+#bar-gold{background:linear-gradient(90deg,#f5b800,#ffe066);}
+#bar-pop{background:linear-gradient(90deg,#3db8e8,#8de0ff);}
+#bar-happy{background:linear-gradient(90deg,#44cc44,#aaffaa);}
+.num-disp{display:flex;align-items:center;height:22px;gap:1px;}
+.num-disp canvas{height:100%;width:auto;image-rendering:crisp-edges;}
+/* DIALOG BOX */
+#dlg-img{position:absolute;top:12px;right:12px;width:750px;height:auto;z-index:20;display:none;}
+#dlg-canvas{position:absolute;top:12px;right:12px;width:750px;height:auto;z-index:21;display:none;}
+/* YES/NO BUTTON - bottom left corner, only shown during questions */
+#yesno-btn{
+  position:absolute;
+  bottom:10px;
+  left:10px;
+  width:150px;
+  height:auto;
+  z-index:25;
+  display:none;
+  cursor:pointer;
+  image-rendering:crisp-edges;
+}
+/* END */
+#end{position:absolute;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:#ffffff;flex-direction:column;gap:20px;}
+#end-title{font-family:serif;font-size:48px;font-weight:bold;color:#222;text-align:center;max-width:700px;}
+#end-desc{font-family:serif;font-size:24px;color:#444;text-align:center;max-width:600px;line-height:1.5;}
+#end-restart{font-family:serif;font-size:18px;color:#888;text-align:center;margin-top:20px;}
+/* TITLE */
+#title{position:absolute;inset:0;z-index:50;}
+#title img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;background:#7a6e67;}
+#play-hit{position:absolute;left:35.2%;top:65.1%;width:26.7%;height:9.5%;z-index:51;cursor:pointer;background:transparent;border:none;}
+#play-hit:hover{filter:brightness(1.3);}
+</style>
+</head>
+<body>
+<div id="game">
+  <img id="bg" src="Images/backround.PNG" onload="fitFrame()">
+  <div id="frame">
+    <img id="char" src="">
+    <div id="stats">
+      <div class="stat-row"><canvas class="stat-icon" id="si-gold"></canvas><div class="bar-wrap"><div class="bar" id="bar-gold" style="width:50%"></div></div><div class="num-disp" id="num-gold"></div></div>
+      <div class="stat-row"><canvas class="stat-icon" id="si-pop"></canvas><div class="bar-wrap"><div class="bar" id="bar-pop" style="width:50%"></div></div><div class="num-disp" id="num-pop"></div></div>
+      <div class="stat-row"><canvas class="stat-icon" id="si-happy"></canvas><div class="bar-wrap"><div class="bar" id="bar-happy" style="width:50%"></div></div><div class="num-disp" id="num-happy"></div></div>
+    </div>
+    <img id="dlg-img" src="Images/textbox.PNG">
+    <canvas id="dlg-canvas" width="800" height="600" onclick="dlgClick(event)"></canvas>
+    <img id="yesno-btn" src="Images/yesnobutton.PNG" onclick="yesnoBtnClick(event)">
+  </div>
+
+  <div id="end" onclick="restartGame()">
+    <div id="end-title"></div>
+    <div id="end-desc"></div>
+    <div id="end-restart">click anywhere to play again</div>
+  </div>
+
+  <div id="title">
+    <img src="Images/startscreen.PNG">
+    <button id="play-hit" onclick="startGame()"></button>
+  </div>
+</div>
+<script>
+// Frame sizing
+function fitFrame(){
+  const bg=document.getElementById('bg');
+  const iw=bg.naturalWidth,ih=bg.naturalHeight;
+  if(!iw||!ih){setTimeout(fitFrame,100);return;}
+  const vw=window.innerWidth,vh=window.innerHeight;
+  const scale=Math.min(vw/iw,vh/ih);
+  const rw=Math.round(iw*scale),rh=Math.round(ih*scale);
+  const fr=document.getElementById('frame');
+  fr.style.left=Math.round((vw-rw)/2)+'px';
+  fr.style.top=Math.round((vh-rh)/2)+'px';
+  fr.style.width=rw+'px';
+  fr.style.height=rh+'px';
+  const dc=document.getElementById('dlg-canvas');
+  dc.width=rw;dc.height=rh;
+}
+window.addEventListener('resize',fitFrame);
+
+// Asset loading
+function loadImg(src){return new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>{console.warn('failed:',src);res(null);};i.src=src;});}
+function cropToCanvas(src,sx,sy,sw,sh){
+  const c=document.createElement('canvas');c.width=sw;c.height=sh;
+  const ctx=c.getContext('2d');ctx.drawImage(src,sx,sy,sw,sh,0,0,sw,sh);
+  const d=ctx.getImageData(0,0,sw,sh);
+  for(let i=0;i<d.data.length;i+=4)if(d.data[i]>240&&d.data[i+1]>240&&d.data[i+2]>240)d.data[i+3]=0;
+  ctx.putImageData(d,0,0);return c;
+}
+function paintIcon(id,c){const d=document.getElementById(id);d.width=c.width;d.height=c.height;d.getContext('2d').drawImage(c,0,0);}
+
+const ALPHA_CROPS=[
+  ['UA',136,88,120,181],['UB',292,88,123,181],['UC',458,88,84,181],['UD',599,88,101,181],
+  ['UE',747,88,124,181],['UF',926,88,95,181],['UG',1091,88,130,181],['UH',1261,88,123,181],
+  ['UI',1444,88,148,181],['UJ',1647,88,173,181],
+  ['UK',160,291,133,205],['UL',327,291,115,205],['UM',489,291,134,205],['UN',672,291,109,205],
+  ['UO',817,291,129,205],['UP',994,291,94,205],['UQ',1139,291,146,205],['UR',1322,291,133,205],
+  ['US',1491,291,111,205],['UT',1633,291,152,205],
+  ['UU',169,497,128,228],['UV',346,497,107,228],['UW',507,497,131,228],['UX',681,497,124,228],
+  ['UY',860,497,130,228],['UZ',1013,497,148,228],
+  ['a',195,749,136,271],['b',395,749,100,271],['c',573,749,113,271],['d',750,749,103,271],
+  ['e',918,749,117,271],['f',1066,749,98,271],['g',1218,749,141,271],['h',1411,749,103,271],
+  ['i',1607,749,36,271],['j',1709,749,97,271],['k',1881,749,119,271],
+  ['l',239,1053,52,237],['m',404,1053,156,237],['n',631,1053,118,237],['o',814,1053,112,237],
+  ['p',1015,1053,100,237],['q',1189,1053,121,237],['r',1386,1053,73,237],['s',1508,1053,124,237],
+  ['t',1663,1053,74,237],['u',1864,1053,85,237],
+  ['v',217,1270,117,227],['w',442,1270,152,227],['x',664,1270,117,227],['y',868,1270,113,227],
+  ['z',1043,1270,117,227],
+  ['dot',1242,1270,70,227],['comma',1463,1270,44,227],['excl',1563,1270,84,227],['quest',1896,1270,45,227],
+];
+const ICON_CROPS={happy:[38,34,213,199],pop:[41,280,219,187],gold:[51,521,204,211]};
+const NUM_CROPS={'1':[132,846,26,223],'2':[306,846,172,223],'3':[610,846,131,223],'4':[843,846,140,223],'5':[1100,846,116,223],'6':[1350,846,111,223],'7':[1580,846,152,223],'8':[1840,846,154,223],'9':[104,1085,107,204],'0':[354,1085,163,204]};
+const LI={},NI={};
+
+async function init(){
+  const[abImg,siImg]=await Promise.all([loadImg('Images/alphabet.PNG'),loadImg('Images/staticons.PNG')]);
+  if(abImg)for(const[k,sx,sy,sw,sh]of ALPHA_CROPS)LI[k]=cropToCanvas(abImg,sx,sy,sw,sh);
+  if(siImg){
+    for(const[n,[sx,sy,sw,sh]]of Object.entries(ICON_CROPS))paintIcon('si-'+n,cropToCanvas(siImg,sx,sy,sw,sh));
+    for(const[d,[sx,sy,sw,sh]]of Object.entries(NUM_CROPS))NI[d]=cropToCanvas(siImg,sx,sy,sw,sh);
+  }
+  updStats();
+}
+
+// Text drawing
+function getLetter(ch){
+  if(ch>='A'&&ch<='Z')return LI['U'+ch]||null;
+  if(ch>='a'&&ch<='z')return LI[ch]||null;
+  if(ch==='.')return LI['dot']||null;
+  if(ch===',')return LI['comma']||null;
+  if(ch==='!')return LI['excl']||null;
+  if(ch==='?')return LI['quest']||null;
+  return null;
+}
+function charW(ch,size){
+  if(ch===' ')return size*0.38;
+  const lc=getLetter(ch);
+  return lc&&lc.height>0?size*lc.width/lc.height+1:size*0.5;
+}
+function measureLine(text,size){return text.split('').reduce((a,c)=>a+charW(c,size),0);}
+function drawLine(ctx,text,size,dx,dy){
+  for(const ch of text){
+    if(ch===' '){dx+=size*0.38;continue;}
+    const lc=getLetter(ch);
+    if(lc){const w=size*lc.width/lc.height;ctx.drawImage(lc,dx,dy,w,size);dx+=w+1;}
+  }
+}
+function drawWrapped(ctx,text,size,x,y,maxW,lineH){
+  const words=text.split(' ');const lines=[];let cur='';
+  for(const w of words){const t=cur?cur+' '+w:w;if(measureLine(t,size)>maxW&&cur){lines.push(cur);cur=w;}else cur=t;}
+  if(cur)lines.push(cur);
+  lines.forEach((ln,i)=>drawLine(ctx,ln,size,x,y+i*lineH));
+}
+function renderNum(el,val){
+  el.innerHTML='';
+  for(const d of String(val)){
+    if(!NI[d])continue;
+    const c=document.createElement('canvas');const h=22;
+    c.height=h;c.width=Math.round(h*NI[d].width/NI[d].height);
+    c.style.cssText=`height:${h}px;width:${c.width}px;image-rendering:crisp-edges`;
+    c.getContext('2d').drawImage(NI[d],0,0,c.width,c.height);
+    el.appendChild(c);
+  }
+}
+
+const NAME_SIZE=30,BODY_SIZE=25,BTN_SIZE=20;
+const CHAR_SIZES={minister:'120%',general:'85%',journalist:'60%',notepad:'60%',devil:'75%',civilian:'70%'};
+const CHAR_BOTTOMS={minister:'-15%',general:'-10%',journalist:'-3%',notepad:'-5%',devil:'-5%',civilian:'-3%'};
+
+function drawDialog(canvasId,name,text,isQuestion){
+  const c=document.getElementById(canvasId);
+  const W=c.width,H=c.height;
+  const ctx=c.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const tx=Math.round(W*0.53);
+  const ty=Math.round(H*0.072);
+  const tmaxW=Math.round(W*0.4);
+  drawLine(ctx,name.toUpperCase(),NAME_SIZE,tx,ty);
+  drawWrapped(ctx,text,BODY_SIZE,tx,ty+NAME_SIZE+6,tmaxW,BODY_SIZE+4);
+  const s=isQuestion?"yes or no":"space";
+  const sw=measureLine(s,BTN_SIZE);
+  const bx=Math.round(W*0.85);
+  const by=Math.round(H*0.320);
+  drawLine(ctx,s,BTN_SIZE,bx-Math.round(sw/2),by-Math.round(BTN_SIZE/2));
+
+
+
+
+
+
+
+}
+
+function dlgClick(e){
+  if(phase==='dialog'&&spaceAction){const f=spaceAction;spaceAction=null;f();}
+}
+
+// YES/NO button click
+// The source image (1270x952) has YES at ~y 4%-20% and NO at ~y 25%-41% of image height
+function yesnoBtnClick(e){
+  if(phase!=='question')return;
+  const img=document.getElementById('yesno-btn');
+  const r=img.getBoundingClientRect();
+  const pct=(e.clientY-r.top)/r.height;
+  if(pct>=0.05&&pct<=0.38){answer(true);return;}
+  if(pct>=0.55&&pct<=0.90){answer(false);return;}
+}
+
+// Stats
+function updStats(){
+  ['gold','pop','happy'].forEach(k=>S[k]=Math.max(0,Math.min(100,S[k])));
+  document.getElementById('bar-gold').style.width=S.gold+'%';
+  document.getElementById('bar-pop').style.width=S.pop+'%';
+  document.getElementById('bar-happy').style.width=S.happy+'%';
+  renderNum(document.getElementById('num-gold'),S.gold);
+  renderNum(document.getElementById('num-pop'),S.pop);
+  renderNum(document.getElementById('num-happy'),S.happy);
+}
+
+function showYesNo(visible){
+  document.getElementById('yesno-btn').style.display=visible?'block':'none';
+}
+
+// Game
+const CHARS={minister:'Images/server.PNG',general:'Images/general.PNG',journalist:'Images/journalist.PNG',notepad:'Images/notepadguy.PNG',devil:'Images/devil.PNG',civilian:'Images/civilian.PNG'};
+const QsPool=[
+  {sp:"TREASURER",pt:"minister",intro:"A neighboring kingdom requests a large loan to survive winter.",q:"Do you lend them the gold?",yes:{gold:-20,pop:0,happy:+15,msg:"Your generosity spreads your good name far and wide."},no:{gold:+5,pop:0,happy:-15,msg:"The coffers remain full. Whispers of your coldness spread."}},
+  {sp:"TREASURER",pt:"minister",intro:"A grand festival has been proposed to lift the peoples spirits.",q:"Do you approve the festival?",yes:{gold:-15,pop:+10,happy:+20,msg:"The people dance in the streets. Long live the king!"},no:{gold:+5,pop:0,happy:-20,msg:"The people groan. Morale drops sharply across the land."}},
+  {sp:"TREASURER",pt:"minister",intro:"Merchants want a market district but it will displace poor families.",q:"Do you allow the market?",yes:{gold:+20,pop:-10,happy:-10,msg:"Gold pours in but families weep in the streets."},no:{gold:-5,pop:+5,happy:+10,msg:"The people cheer your compassion. Merchants grumble."}},
+  {sp:"TREASURER",pt:"minister",intro:"A scholar proposes a Royal University. Expensive but transformative.",q:"Do you fund the university?",yes:{gold:-20,pop:+10,happy:+15,msg:"Brilliant minds flock here. Knowledge and wealth grow!"},no:{gold:+5,pop:0,happy:-10,msg:"The scholar leaves in sorrow. Talent drains away."}},
+  {sp:"TREASURER",pt:"minister",intro:"Noble lords demand tax exemptions in exchange for loyalty.",q:"Do you grant the exemptions?",yes:{gold:-20,pop:0,happy:+5,msg:"The nobles are pleased. But the treasury suffers."},no:{gold:+10,pop:0,happy:-10,msg:"The nobles are furious. They plot against you."}},
+  {sp:"TREASURER",pt:"minister",intro:"A famous architect offers to build a grand cathedral.",q:"Do you commission it?",yes:{gold:-25,pop:+5,happy:+20,msg:"The cathedral rises. Pilgrims flock from all lands."},no:{gold:+5,pop:0,happy:-10,msg:"The architect weeps. The people feel forgotten."}},
+  {sp:"TREASURER",pt:"minister",intro:"Foreign traders offer a treaty that heavily favors them.",q:"Do you sign the trade treaty?",yes:{gold:+15,pop:0,happy:-10,msg:"Gold flows in but locals say you sold them out."},no:{gold:-5,pop:+5,happy:+10,msg:"Locals cheer. Homegrown traders thrive."}},
+  {sp:"TREASURER",pt:"minister",intro:"Farmers demand lower taxes after three poor harvests.",q:"Do you lower their taxes?",yes:{gold:-15,pop:+10,happy:+15,msg:"The farmers cheer. Fields are tended with renewed joy."},no:{gold:+10,pop:-10,happy:-15,msg:"Many farmers abandon their lands. Harvests worsen."}},
+  {sp:"GENERAL",pt:"general",intro:"Skilled mercenaries offer to defend the border for a hefty price.",q:"Do you hire them?",yes:{gold:-20,pop:+5,happy:+10,msg:"The soldiers cheer. The borders are secured!"},no:{gold:+5,pop:-10,happy:-5,msg:"Raiders strike the border villages. The people weep."}},
+  {sp:"GENERAL",pt:"general",intro:"Fertile lands to the north await. Sending settlers costs gold.",q:"Do you send settlers?",yes:{gold:-10,pop:+20,happy:+5,msg:"New villages flourish in the north. Population grows!"},no:{gold:0,pop:-5,happy:-5,msg:"The chance is lost. Other kingdoms expand instead."}},
+  {sp:"GENERAL",pt:"general",intro:"Plague breaks out in the east. Quarantine will hurt trade.",q:"Do you enforce the quarantine?",yes:{gold:-15,pop:+15,happy:+5,msg:"Lives are saved. The plague is contained."},no:{gold:0,pop:-25,happy:-20,msg:"The plague spreads. Many perish. The kingdom mourns."}},
+  {sp:"GENERAL",pt:"general",intro:"Bandits seized the mountain pass and cut off trade routes.",q:"Do you send the army?",yes:{gold:-15,pop:+5,happy:+10,msg:"The pass is cleared! Trade routes reopen."},no:{gold:-10,pop:0,happy:-15,msg:"Merchants are robbed. Trade collapses."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"The people say you favor nobles of one race over others.",q:"Do you publicly deny racial favoritism?",yes:{gold:-5,pop:-5,happy:-10,msg:"Your denial rings hollow. Headline: KING LIES TO HIS PEOPLE."},no:{gold:0,pop:-10,happy:-15,msg:"You admit nothing. Headline: KING ADMITS PARTIALITY."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"The royal propaganda posters depict your enemies as monsters.",q:"Do you order removal of the posters?",yes:{gold:-5,pop:-5,happy:-10,msg:"Critics say you are weak. Headline: KING BACKS DOWN FROM TRUTH."},no:{gold:0,pop:-10,happy:-15,msg:"The posters inflame hatred. Headline: KING INCITES FEAR FOR FUN."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"Allegations claim you censor minority voices in your kingdom.",q:"Do you allow a free press to cover all communities?",yes:{gold:-5,pop:-5,happy:-10,msg:"The journalists twist your generosity. Headline: KING PATRONIZES MINORITIES."},no:{gold:0,pop:-10,happy:-15,msg:"Silence fuels rumors. Headline: KING OPPRESSES THE PEOPLE."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"People claim your soldiers favor one neighborhood over another.",q:"Do you investigate fairness in your army?",yes:{gold:-5,pop:-5,happy:-10,msg:"The report says you act. Headline: KING SHOWS FAVORITISM ANYWAY."},no:{gold:0,pop:-10,happy:-15,msg:"No action taken. Headline: KING IGNORES SUFFERING."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"Rumors say you pay newspapers to print only positive news.",q:"Do you reveal your media dealings?",yes:{gold:-5,pop:-5,happy:-10,msg:"Your reveal is spun negatively. Headline: KING ADMITS MANIPULATION."},no:{gold:0,pop:-10,happy:-15,msg:"Silence interpreted as guilt. Headline: KING SECRETLY COVERS UP."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"Reports claim your tax collectors brutalize villages.",q:"Do you publicly fire the culprits and investigate?",yes:{gold:-10,pop:-5,happy:-15,msg:"You act decisively, but headlines scream: KING ENCOURAGES BRUTALITY."},no:{gold:0,pop:-10,happy:-20,msg:"You ignore the complaints. Headline: KING OPPRESSES HIS PEOPLE."}},
+  {sp:"JOURNALIST",pt:"journalist",intro:"Sources say you pay villagers to spy on each other.",q:"Do you stop funding these snitches?",yes:{gold:-5,pop:-5,happy:-10,msg:"You end the payments, but the press accuses: KING ADMITS TYRANNY."},no:{gold:-5,pop:-10,happy:-15,msg:"Payments continue. Headline: KING BRIBES SNITCHES."}},
+  {sp:"CIVILIAN",pt:"civilian",intro:"My farm burned down and I have nothing left. My children are starving.",q:"Do you give him emergency aid from the treasury?",yes:{gold:-10,pop:+15,happy:+15,msg:"The family survives. Word spreads of your compassion."},no:{gold:0,pop:-15,happy:-15,msg:"The family begs in the streets. People whisper in anger."}},
+  {sp:"CIVILIAN",pt:"civilian",intro:"The local lord has been taxing us twice. We cannot pay anymore.",q:"Do you investigate and stop the double taxation?",yes:{gold:-5,pop:+20,happy:+15,msg:"The lord is reprimanded. Farmers breathe again."},no:{gold:+10,pop:-15,happy:-20,msg:"The lord grows richer. The people grow poorer and angrier."}},
+  {sp:"CIVILIAN",pt:"civilian",intro:"There is no school in my village. My children cannot read.",q:"Do you fund a village school?",yes:{gold:-15,pop:+15,happy:+20,msg:"Children fill the schoolroom. The future brightens."},no:{gold:0,pop:-10,happy:-15,msg:"Another generation grows up without letters. Hope fades."}},
+  {sp:"CIVILIAN",pt:"civilian",intro:"The well in our village collapsed. We walk miles for water every day.",q:"Do you send workers to rebuild the well?",yes:{gold:-10,pop:+15,happy:+20,msg:"Clean water flows again. The village cheers your name."},no:{gold:0,pop:-15,happy:-15,msg:"Disease spreads. Several villagers fall ill and blame the crown."}},
+  {sp:"CIVILIAN",pt:"civilian",intro:"Soldiers have been sleeping in our homes and eating our food for months.",q:"Do you order the soldiers to return to barracks?",yes:{gold:-5,pop:+20,happy:+20,msg:"Peace returns to the village. Families sleep soundly again."},no:{gold:0,pop:-20,happy:-20,msg:"Resentment boils over. Three villages refuse to pay taxes."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"My chickens died because your soldiers ate everything on my land!",q:"Do you compensate him from the treasury?",yes:{gold:-10,pop:+15,happy:+15,msg:"You pay the man. The kingdom calls you fair."},no:{gold:0,pop:-10,happy:-15,msg:"He writes a pamphlet. Everyone reads it. Everyone hates you."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"I walked four days to ask why the road to my village is a swamp.",q:"Do you fund road repairs immediately?",yes:{gold:-15,pop:+15,happy:+10,msg:"The road is fixed. He walks home in two days. He cries a little."},no:{gold:0,pop:-10,happy:-15,msg:"He trudges home through the swamp and tells everyone."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"A lord burned my house. I filed complaints for two years. Nothing.",q:"Do you intervene and punish the lord?",yes:{gold:-5,pop:+20,happy:+20,msg:"The lord is fined. The man gets his land back. Justice is cheered."},no:{gold:+5,pop:-15,happy:-20,msg:"Lords note that you did nothing. More houses quietly burn."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"I tried to open a bakery but guild fees cost more than my house.",q:"Do you reform the guild fee structure?",yes:{gold:-10,pop:+15,happy:+15,msg:"Small businesses boom. The bread is excellent."},no:{gold:+10,pop:-10,happy:-10,msg:"Everyone eats bad bread and resents you."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"My son joined the army three years ago. We got one letter. Is he dead?",q:"Do you fund a military records system?",yes:{gold:-15,pop:+15,happy:+15,msg:"Families learn the truth. The kingdom weeps with relief."},no:{gold:0,pop:-15,happy:-15,msg:"Hundreds of families never know. The silence becomes a wound."}},
+  {sp:"NOTEPAD GUY",pt:"notepad",intro:"The healer charges more than a horse. My wife nearly died.",q:"Do you fund public healers in villages?",yes:{gold:-20,pop:+20,happy:+20,msg:"Healers spread through the land. Countless lives saved."},no:{gold:0,pop:-15,happy:-20,msg:"His pamphlet circulates for a generation."}}
+];
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+const Qs=shuffle([...QsPool]).slice(0,10);
+let S={gold:50,pop:50,happy:50,turn:0},spaceAction=null,curQ=null,busy=false,phase='dialog';
+
+function startGame(){document.getElementById('title').style.display='none';nextTurn();}
+function restartGame(){document.getElementById('end').style.display='none';S={gold:50,pop:50,happy:50,turn:0};nextTurn();}
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();if(phase==='dialog'&&spaceAction){const f=spaceAction;spaceAction=null;f();}}
+  if(e.code==='KeyY'&&phase==='question'){answer(true);}
+  if(e.code==='KeyN'&&phase==='question'){answer(false);}
+});
+
+function showDialog(name,text,isQuestion,cb){
+  phase=isQuestion?'question':'dialog';
+  spaceAction=isQuestion?null:cb;
+  document.getElementById('dlg-img').style.display='block';
+  document.getElementById('dlg-canvas').style.display='block';
+  drawDialog('dlg-canvas',name,text,isQuestion);
+  showYesNo(isQuestion);
+}
+
+function nextTurn(){
+  if(S.turn>=Qs.length){checkEnd();return;}
+  curQ=Qs[S.turn];updStats();
+  const ch=document.getElementById('char');
+  ch.style.transition='none';ch.style.right='-40%';
+  ch.src=CHARS[curQ.pt]||CHARS.minister;
+  ch.style.height=CHAR_SIZES[curQ.pt]||'55%';
+  ch.style.bottom=CHAR_BOTTOMS[curQ.pt]||'2%';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    ch.style.transition='right 0.7s cubic-bezier(0.25,0.46,0.45,0.94)';ch.style.right='0%';
+  }));
+  showDialog(curQ.sp,curQ.intro,false,()=>showDialog(curQ.sp,curQ.q,true,null));
+}
+
+const DEVIL_DEALS=[
+  {cost:{pop:-15},msg:"Fifteen souls vanish in the night. The journalist wakes up confused."},
+  {cost:{happy:-20},msg:"A wave of dread sweeps the kingdom. The journalist forgets everything."},
+  {cost:{gold:-25},msg:"A chest of gold disappears. The journalist finds a better story elsewhere."},
+  {cost:{pop:-10,happy:-10},msg:"People grow fearful and miserable. The journalist moves on."},
+  {cost:{gold:-15,pop:-10},msg:"Gold and lives traded in shadow. The headline is buried forever."},
+];
+let devilPending=null;
+
+function devilDeal(){
+  const deal=DEVIL_DEALS[Math.floor(Math.random()*DEVIL_DEALS.length)];
+  devilPending=deal;
+  const ch=document.getElementById('char');
+  ch.style.transition='none';ch.style.right='-40%';
+  ch.src=CHARS.devil;
+  ch.style.height=CHAR_SIZES.devil;
+  ch.style.bottom=CHAR_BOTTOMS.devil;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    ch.style.transition='right 0.7s cubic-bezier(0.25,0.46,0.45,0.94)';ch.style.right='0%';
+  }));
+  const parts=[];
+  if(deal.cost.pop)parts.push(Math.abs(deal.cost.pop)+' lives');
+  if(deal.cost.happy)parts.push(Math.abs(deal.cost.happy)+' happiness');
+  if(deal.cost.gold)parts.push(Math.abs(deal.cost.gold)+' gold');
+  showDialog('THE DEVIL','I can make that journalist forget. It will only cost you '+parts.join(', ')+'. Deal?',true,null);
+}
+
+function answer(yes){
+  if(busy||phase!=='question')return;busy=true;
+  showYesNo(false);
+  if(devilPending){
+    const deal=devilPending;
+    devilPending=null;
+    if(yes){
+      if(deal.cost.gold)S.gold+=deal.cost.gold;
+      if(deal.cost.pop)S.pop+=deal.cost.pop;
+      if(deal.cost.happy)S.happy+=deal.cost.happy;
+      updStats();
+      showDialog('THE DEVIL',deal.msg,false,()=>{
+        busy=false;
+        if(S.gold<=0){showEnd('BANKRUPT','The treasury is empty. Chaos erupts. You are deposed.');return;}
+        if(S.pop<=0){showEnd('DESERTED','Every soul has fled. You sit alone on an empty throne.');return;}
+        if(S.happy<=0){showEnd('REVOLUTION','The people storm the palace. Your reign ends tonight.');return;}
+        nextTurn();
+      });
+    } else {
+      showDialog('THE DEVIL','Heh. Your loss, your majesty.',false,()=>{busy=false;nextTurn();});
+    }
+    return;
+  }
+  const wasJournalist=curQ.pt==='journalist';
+  const r=yes?curQ.yes:curQ.no;
+  S.gold+=r.gold;S.pop+=r.pop;S.happy+=r.happy;updStats();S.turn++;
+  showDialog(curQ.sp,r.msg,false,()=>{
+    busy=false;
+    if(S.gold<=0){showEnd('BANKRUPT','The treasury is empty. Chaos erupts. You are deposed.');return;}
+    if(S.pop<=0){showEnd('DESERTED','Every soul has fled. You sit alone on an empty throne.');return;}
+    if(S.happy<=0){showEnd('REVOLUTION','The people storm the palace. Your reign ends tonight.');return;}
+    if(wasJournalist){devilDeal();return;}
+    nextTurn();
+  });
+}
+
+function checkEnd(){
+  const avg=(S.gold+S.pop+S.happy)/3,g=S.gold,p=S.pop,h=S.happy;
+  if(g<=5&&p<=5&&h<=5){showEnd('TOTAL COLLAPSE','Nothing remains. The throne sits empty forever.');return;}
+  if(g<=5&&p<=5){showEnd('GHOST KINGDOM','Bankrupt and deserted. Only crows remain.');return;}
+  if(g<=5&&h<=5){showEnd('BITTER RUIN','A penniless tyrant. The people spit your name as they flee.');return;}
+  if(p<=5&&h<=5){showEnd('THE CURSED THRONE','Your people vanished hating you. Historians call it the Age of Shame.');return;}
+  if(g<=5){showEnd('ECONOMIC RUIN','The treasury is bare. The kingdom crumbles from within.');return;}
+  if(p<=5){showEnd('EMPTY KINGDOM','Farms lie abandoned. Too many people left for good.');return;}
+  if(h<=5){showEnd('HATED TYRANT','They call you the Misery King for a thousand years.');return;}
+  if(avg>=75&&g>=70&&p>=70&&h>=70){showEnd('THE LEGENDARY REIGN','Bards weep composing your ballads. Greatest ruler in living memory.');return;}
+  if(avg>=65&&g>=55&&p>=55&&h>=55){showEnd('THE GOLDEN AGE','Gold overflows, people thrive, and laughter fills every street.');return;}
+  if(g>=80&&p>=50&&h>=50){showEnd('THE MERCHANT KING','Your kingdom is the richest in all the land.');return;}
+  if(p>=80&&g>=50&&h>=50){showEnd('THE PEOPLES KING','Future generations carry your name with pride.');return;}
+  if(h>=80&&g>=50&&p>=50){showEnd('THE BELOVED KING','No king was ever so cherished.');return;}
+  if(avg>=60){showEnd('A PROSPEROUS REALM','Not perfect but good. Your people want for little.');return;}
+  if(g<25&&p<25){showEnd('THE FORGOTTEN FRONTIER','Poor and empty. Your lands fade from every map.');return;}
+  if(g<25){showEnd('BORROWED THRONE','You spent every coin. Foreign creditors own your castle.');return;}
+  if(p<25){showEnd('BARREN LANDS','Few remain. Enemies circle like wolves.');return;}
+  if(h<25){showEnd('FORGOTTEN KING','You ruled joylessly. Your name erased within a generation.');return;}
+  if(avg>=50){showEnd('MEDIOCRE REIGN','Your kingdom survives but history forgets your name.');return;}
+  showEnd('THE GRAY YEARS','A kingdom neither flourishing nor dead. Just existing.');
+}
+
+function showEnd(title,desc){
+  phase='end';
+  showYesNo(false);
+  document.getElementById('dlg-img').style.display='none';
+  document.getElementById('dlg-canvas').style.display='none';
+  document.getElementById('end-title').textContent=title;
+  document.getElementById('end-desc').textContent=desc;
+  document.getElementById('end').style.display='flex';
+}
+
+init();
+</script>
+</body>
+</html>
